@@ -3,6 +3,14 @@ extern crate cmake;
 use cmake::Config;
 use std::{env, path::PathBuf};
 
+fn env_flag(name: &str) -> Option<bool> {
+    env::var(name).ok().and_then(|value| match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => Some(true),
+        "0" | "false" | "off" | "no" => Some(false),
+        _ => None,
+    })
+}
+
 fn build_and_link_mlx_c() {
     let mut config = Config::new("src/mlx-c");
     config.very_verbose(true);
@@ -18,18 +26,21 @@ fn build_and_link_mlx_c() {
         config.define("CMAKE_BUILD_TYPE", "Release");
     }
 
-    config.define("MLX_BUILD_METAL", "OFF");
-    config.define("MLX_BUILD_ACCELERATE", "OFF");
-
-    #[cfg(feature = "metal")]
-    {
-        config.define("MLX_BUILD_METAL", "ON");
+    let mut build_metal = cfg!(feature = "metal");
+    if let Some(flag) = env_flag("MLX_RS_ENABLE_METAL") {
+        build_metal = flag;
     }
 
-    #[cfg(feature = "accelerate")]
-    {
-        config.define("MLX_BUILD_ACCELERATE", "ON");
+    let mut build_accelerate = cfg!(feature = "accelerate");
+    if let Some(flag) = env_flag("MLX_RS_ENABLE_ACCELERATE") {
+        build_accelerate = flag;
     }
+
+    config.define("MLX_BUILD_METAL", if build_metal { "ON" } else { "OFF" });
+    config.define(
+        "MLX_BUILD_ACCELERATE",
+        if build_accelerate { "ON" } else { "OFF" },
+    );
 
     // build the mlx-c project
     let dst = config.build();
@@ -42,13 +53,11 @@ fn build_and_link_mlx_c() {
     println!("cargo:rustc-link-lib=dylib=objc");
     println!("cargo:rustc-link-lib=framework=Foundation");
 
-    #[cfg(feature = "metal")]
-    {
+    if build_metal {
         println!("cargo:rustc-link-lib=framework=Metal");
     }
 
-    #[cfg(feature = "accelerate")]
-    {
+    if build_accelerate {
         println!("cargo:rustc-link-lib=framework=Accelerate");
     }
 }
